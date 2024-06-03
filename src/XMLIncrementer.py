@@ -11,8 +11,11 @@ class XMLIncrementerApp:
         self.root = root
         self.root.title("XML Incrementer")
 
+        # Set custom icon
+        self.set_custom_icon()
+
         # Set minimum size and center the window
-        self.set_minimum_size(275, 375)
+        self.set_minimum_size(300, 475)
         self.center_window()
 
         # Initialize variables
@@ -20,6 +23,7 @@ class XMLIncrementerApp:
         self.trees = []
         self.increment_value = tk.IntVar(value=1)
         self.tags = []
+        self.encodings = []
 
         # GUI Elements
         # Frame to hold load button and view files button
@@ -38,8 +42,8 @@ class XMLIncrementerApp:
         )
         self.view_files_button.pack(side=tk.LEFT, padx=5)
 
-        # Label and Entry for tag to increment
-        self.tag_label = tk.Label(root, text="Tag to Increment:")
+        # Label and Entry for tag to modify
+        self.tag_label = tk.Label(root, text="Tag to Modify:")
         self.tag_label.pack(pady=5)
 
         self.tag_entry = tk.Entry(root)
@@ -65,6 +69,36 @@ class XMLIncrementerApp:
             root, text="Increment", command=self.increment_tag
         )
         self.increment_button.pack(pady=5)
+
+        # Label and Entry for new value
+        self.new_value_label = tk.Label(root, text="Replace Value:")
+        self.new_value_label.pack(pady=5)
+
+        self.new_value_entry = tk.Entry(root)
+        self.new_value_entry.pack(pady=5)
+
+        # Button to modify tag
+        self.modify_button = tk.Button(root, text="Replace", command=self.modify_tag)
+        self.modify_button.pack(pady=5)
+
+    # Method to set custom icon for the window based on an encoded .png
+    def set_custom_icon(self):
+        # Base64 encoded string of the image
+        # Here is the script to encode the image if you want to change the icon :
+        """
+        import base64
+
+        with open("xml.png", "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+            print(encoded_string)
+        """
+
+        icon_data = """
+        iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAF9JREFUOI1jmPk04D8DEkDnEwVgmsjSTJHNVHEBpWHAhE1wjZHR/zVGRv8JieEEMIW4aKINwMeGAaxeQAYh584x4pMnaAAhQLIB8WefkJ9esBlAfy9Q3QC8UYQNoIcBANG2Owg9pbetAAAAAElFTkSuQmCC
+        """
+
+        self.icon = tk.PhotoImage(data=icon_data)
+        self.root.iconphoto(True, self.icon)
 
     # Method to set minimum size of the window
     def set_minimum_size(self, width, height):
@@ -94,16 +128,23 @@ class XMLIncrementerApp:
             return
         self.trees = []
         self.tags = []
+        self.encodings = []
         for filepath in self.filepaths:
             try:
-                # Open and read the file
-                with open(filepath, "r", encoding="iso-8859-1") as file:
+                # Open and read the file to detect encoding
+                with open(filepath, "rb") as file:
+                    raw_data = file.read(100)
+                    encoding = self.detect_encoding(raw_data)
+
+                # Open and read the file with detected encoding
+                with open(filepath, "r", encoding=encoding) as file:
                     content = file.read()
                 # Unescape HTML entities
                 content = html.unescape(content)
                 # Parse the XML content
                 tree = ET.ElementTree(ET.fromstring(content))
                 self.trees.append((filepath, tree))
+                self.encodings.append(encoding)
                 # Extract tags from the content
                 if not self.tags:
                     self.tags = self.extract_tags(content)
@@ -127,6 +168,13 @@ class XMLIncrementerApp:
         else:
             # Show error message if no valid XML files are loaded
             messagebox.showerror("Error", "No valid XML files loaded.")
+
+    # Method to detect encoding from the XML declaration
+    def detect_encoding(self, raw_data):
+        encoding_match = re.search(b"^<\?xml.*encoding=[\"'](.*?)[\"']", raw_data)
+        if encoding_match:
+            return encoding_match.group(1).decode("utf-8")
+        return "utf-8"
 
     # Method to extract tags from XML content
     def extract_tags(self, content):
@@ -186,7 +234,7 @@ class XMLIncrementerApp:
             messagebox.showerror("Error", "Increment value must be an integer.")
             return
 
-        for filepath, tree in self.trees:
+        for index, (filepath, tree) in enumerate(self.trees):
             root = tree.getroot()
             elements = root.findall(f".//{tag}")
 
@@ -210,10 +258,50 @@ class XMLIncrementerApp:
                     elem.text = (text if text else "") + str(increment_value)
 
             try:
-                # Write the updated XML back to the file
-                """I use encoding iso-8859-1 because that's the enconding of my XMLs.
-                Modify if your XML Files have a different encoding"""
-                tree.write(filepath, encoding="iso-8859-1")
+                # Write the updated XML back to the file with detected encoding
+                tree.write(filepath, encoding=self.encodings[index])
+                messagebox.showinfo(
+                    "Success",
+                    f"File {os.path.basename(filepath)} updated successfully.",
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"Failed to save XML file {filepath}: {e}"
+                )
+
+    # Method to modify tag
+    def modify_tag(self):
+        if not self.trees:
+            messagebox.showerror("Error", "No XML files loaded.")
+            return
+
+        tag = self.tag_entry.get()
+        if not tag:
+            messagebox.showerror("Error", "No tag specified.")
+            return
+
+        new_value = self.new_value_entry.get()
+        if new_value == "":
+            messagebox.showerror("Error", "New value cannot be empty.")
+            return
+
+        for index, (filepath, tree) in enumerate(self.trees):
+            root = tree.getroot()
+            elements = root.findall(f".//{tag}")
+
+            if not elements:
+                messagebox.showerror(
+                    "Error",
+                    f"No elements found with tag '{tag}' in file {os.path.basename(filepath)}.",
+                )
+                continue
+
+            for elem in elements:
+                elem.text = new_value
+
+            try:
+                # Write the updated XML back to the file with detected encoding
+                tree.write(filepath, encoding=self.encodings[index])
                 messagebox.showinfo(
                     "Success",
                     f"File {os.path.basename(filepath)} updated successfully.",
